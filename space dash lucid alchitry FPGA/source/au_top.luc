@@ -1,0 +1,98 @@
+module au_top (
+    input clk,              // 100MHz clock
+    input rst_n,            // reset button (active low)
+
+    input io_button [5],    // 5 buttons on IO Shield
+    output outled,           // to LED strip, Br pin C49, connect LED Strip to 5V for power
+    
+    input usb_rx,           // USB->Serial input
+    output led [8],         // 8 user controllable LEDs
+    output usb_tx,          // USB->Serial output
+    output io_led [3][8],   // LEDs on IO Shield
+    output io_seg [8],      // 7-segment LEDs on IO Shield
+    output io_sel [4],      // Digit select on IO Shield
+    input io_dip [3][8]     // DIP switches on IO Shield
+  ) {
+  
+  sig rst; // reset signal
+
+  // init modules
+  game_clk gclk(.clk(clk), .rst(rst));
+  game_fsm game_cu(.clk(clk), .rst(rst));
+  display_score score(.clk(clk), .rst(rst));
+  
+  // ws2818b inputs 
+  button_conditioner clear_button(.clk(clk));
+  edge_detector clear_button_edge(.clk(clk), #RISE(1), #FALL(0));
+  button_conditioner reverse_button(.clk(clk));
+  edge_detector reverse_button_edge(.clk(clk), #RISE(1), #FALL(0));
+  
+  // game inputs 
+  button_conditioner start_button(.clk(clk));
+  edge_detector start_button_edge(.clk(clk), #RISE(1), #FALL(0));
+  button_conditioner up_button(.clk(clk));
+  edge_detector up_button_edge(.clk(clk), #RISE(1), #FALL(0));
+  button_conditioner dn_button(.clk(clk));
+  edge_detector dn_button_edge(.clk(clk), #RISE(1), #FALL(0));
+
+  .clk(clk) {
+    // The reset conditioner is used to synchronize the reset signal to the FPGA
+    // clock. This ensures the entire FPGA comes out of reset at the same time.
+    reset_conditioner reset_cond;
+  }
+  
+  always {
+    reset_cond.in = ~rst_n; // input raw inverted reset signal
+    rst = reset_cond.out;   // conditioned reset
+    
+    usb_tx = usb_rx;        // loop serial port
+    
+    led = 8h00;             // turn LEDs off
+    io_led = 3x{{8h00}};    // turn LEDs off
+    io_seg = 8hff;          // turn segments off
+    io_sel = 4b1111;        // turn off all digit
+
+    reverse_button.in = io_button[1]; // use this button to enable reverse
+    reverse_button_edge.in = reverse_button.out;
+    
+    clear_button.in = io_button[2]; // use this button to clear ws2818b 
+    clear_button_edge.in = clear_button.out;
+    
+    start_button.in = io_button[0]; // use this button to detec start
+    start_button_edge.in = start_button.out;
+    
+    up_button.in = io_button[3]; // use this button to detect flap up 
+    up_button_edge.in = up_button.out;
+    
+    dn_button.in = io_button[4]; // use this button to detect flap dn
+    dn_button_edge.in = dn_button.out;
+    
+    // assign game_cu inputs 
+    game_cu.reverse_button_edge = reverse_button_edge.out;
+    game_cu.clear_button_edge = clear_button_edge.out;
+    game_cu.start = start_button_edge.out;
+    game_cu.flap_up = up_button_edge.out;
+    game_cu.flap_down = dn_button_edge.out;
+   
+    outled=game_cu.outled;
+    
+    // debug 
+    // show the score
+    score.value = game_cu.score_output[7:0];
+    io_seg = ~score.seg;
+    io_sel = score.sel; // turn on rightmost digit, and leftmost digit
+    // debug 
+    // show the cycle count
+    io_led[0] = game_cu.cycle_output[7:0];
+    //io_led[1] = game_cu.rom_address[7:0];
+   
+    //io_led[2][0] = game_cu.matrix; 
+    //io_led[2][0] = gclk.gclk0; 
+    //io_led[2][1] = gclk.gclk1; 
+    //io_led[2][2] = gclk.gclk2; 
+    io_led[2][5] = game_cu.game_started_led; 
+    io_led[2][6] = game_cu.game_over_led; 
+    io_led[2][7] = game_cu.collide; 
+    
+  }
+}

@@ -1,0 +1,18 @@
+module fa (
+//define inputs/outputs
+  input a,
+  input b,
+  input ci,
+  output s,
+  output co
+  ) {
+sig i,j,k; //intermediary connectors
+  always {
+    
+    s = a ^ b ^ ci;
+    i = a & b;
+    j = a & ci;
+    k = b & ci;
+    co = i | j | k;
+  }
+}

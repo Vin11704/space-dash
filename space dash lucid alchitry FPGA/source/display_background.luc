@@ -1,0 +1,297 @@
+module display_background#(
+  // We shall always assume that COLUMN_DIMENSION and ROW_DIMENSION is a 2^x
+  COLUMN_DIMENSION = 16 : COLUMN_DIMENSION > 0,
+  ROW_DIMENSION = 16 : ROW_DIMENSION > 0,
+  ALU_DIMENSION = 16 : ALU_DIMENSION > 0,
+  MAX_HEIGHT = 8 : MAX_HEIGHT > 0
+  ) (
+    input clk,  // clock
+    input rst,  // reset
+    
+    // game params 
+    input bird[ALU_DIMENSION], 
+    input start_button_edge,
+    input reverse_button_edge,
+    input clear_button_edge,
+    input game_start,
+    input game_end,
+    
+    output score[8], 
+    output collide, 
+    output matrix,
+    output outled
+  ) {
+
+  const PIXEL_COUNT = COLUMN_DIMENSION *  ROW_DIMENSION;   
+  const ENCODING_AMOUNT = 4; // how many different encodings are used? As example, we use 4
+  
+  // This is a custom encoding
+  // BLUE (11), GREEN (10), RED (01), BLANK (00)
+  const LEDCOLOR = {24hFF0000, 24h0000FF, 24h00FF00, 24h000000}; 
+  
+  // TEST case: for 16x16 matrix, needs 256x2 bits = 512 bits
+  // every row will display the same thing 
+  // only dictate what each row color should be 
+  // The ROM consist of 80 different color sets, the LED matrix strip will cycle through these
+  const ROM = {  // changed 20240410
+    32b11111111111111110000000000000000, //64
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000, //62
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000, 
+    32b11111111111111110101010101000000,
+    32b11111111111111110101010101000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110101010000000000,
+    32b11111111111111110101010000000000,
+    32b11111111111111110000000000010101, //48
+    32b11111111111111110000000000010101,
+    32b11111111111111110000000000000000,
+    32b11111111111111110101010000000000,
+    32b11111111111111110101010000000000,
+    32b11111111111111110000000000010101,
+    32b11111111111111110000000000010101,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110101000000000000,
+    32b11111111111111110101000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000101010101,
+    32b11111111111111110000000101010101,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000, //32
+    32b11111111111111110000000000000000,
+    32b11111111111111110101010101000000,
+    32b11111111111111110101010101000000,
+    32b11111111111111110000000000000101,
+    32b11111111111111110000000000000101,
+    32b11111111111111110101010000000000,
+    32b11111111111111110101010000000000,
+    32b11111111111111110000000001010101,
+    32b11111111111111110000000001010101,
+    32b11111111111111110101000000000000,
+    32b11111111111111110101000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110100000001010101,
+    32b11111111111111110100000001010101,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000, //16
+    32b11111111111111110000000000000000,
+    32b11111111111111110101010101000000,
+    32b11111111111111110101010101000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000010101,
+    32b11111111111111110000000000010101,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000,
+    32b11111111111111110000000000000000 //0
+  };
+
+  sig encoded_pixel_address[$clog2(PIXEL_COUNT)*$clog2(ENCODING_AMOUNT)];
+  sig current_color_encoding[$clog2(ENCODING_AMOUNT)];
+
+  var index;
+  
+  // for ROM encoding
+  dff counter[26](.clk(clk), .rst(rst), #INIT(0));  // background refresh rate
+  dff counter1[20](.clk(clk), .rst(rst), #INIT(0)); // bird refresh rate
+  dff rom_address[$clog2(64)](.clk(clk), #INIT(0), .rst(rst)); 
+  dff scores[$clog2(999)](.clk(clk), #INIT(0), .rst(rst)); 
+   
+  fsm state(.clk(clk), .rst(rst)) = {INIT, IDLE, LOAD, COLLIDE_IDLE, COLLIDE_LOAD };
+  
+  // a state to toggle revere 
+  dff matrix_used(#INIT(0), .clk(clk), .rst(rst));
+  dff tmp_collide(.clk(clk), .rst(rst), #INIT(0)); 
+
+  // observed output of the strip: (if matrix is used, this is the value of the top row or first row)
+  // (connector) WHITE WHITE BLUE WHITE RED WHITE GREEN WHITE BLUE BLUE BLUE BLUE BLUE BLUE BLUE BLUE (end of strip)
+  // e.g: E is 1110 ---> 10 first (BLUE) then 11 (WHITE)
+  // as example, we repeat pattern each row, assuming there are 16 cols in a row hence 32 bits of encoded data per row
+  dff led_encoding[PIXEL_COUNT*$clog2(ENCODING_AMOUNT)](.clk(clk), .rst(rst), #INIT(ROW_DIMENSIONx{ROM[0]})); // 2 bit to encode a color per pixel
+  dff temp_encoding[PIXEL_COUNT*$clog2(ENCODING_AMOUNT)](.clk(clk), .rst(rst), #INIT(0)); // holds temporary value (double buffering)
+
+  ws2812b_writer led_strip(#PIXEL_COUNT(PIXEL_COUNT), .clk(clk), .rst(rst)); 
+  reverser index_reverser(.clk(clk), .rst(rst), #COLUMN_DIMENSION(COLUMN_DIMENSION), #ROW_DIMENSION(ROW_DIMENSION));
+    
+  .clk(clk) {
+    // The reset conditioner is used to synchronize the reset signal to the FPGA
+    // clock. This ensures the entire FPGA comes out of reset at the same time.
+  }
+
+  always {
+    led_strip.update = 0; // do not refresh by default
+    led_strip.clear = 0; // do not clear by default
+
+    if (rst) {
+      tmp_collide.d = 1b0;
+    }
+
+    if (start_button_edge) {
+      tmp_collide.d = 1b0;
+      rom_address.d = 0;
+      scores.d =0;
+      state.d = state.INIT;
+    }
+
+    // toggle matrix used button 
+    if (reverse_button_edge){
+      matrix_used.d = matrix_used.q + 1;
+    }
+
+    if (game_start && ~game_end){ // load new value when counter.q is all 1
+      counter.d = counter.q + 1;
+      counter1.d = counter1.q + 1;
+      if (scores.q > 62) { //at cycle 2 //62
+        counter.d[25] = counter.q[25] + 1;
+      }
+      if (scores.q > 122) { //at cycle 3  //122
+        counter.d[24] = counter.q[24] + 1;
+      }
+    }
+    /*if (game_start && ~game_end){ // load new value when counter.q is all 1
+      counter.d = counter.q + 1;
+      counter1.d = counter1.q + 1;
+    } */
+    if (&counter.q && game_start && ~game_end){ // load new value when counter.q is all 1
+      rom_address.d = rom_address.q + 1; // advance ROM address by 1 the moment counter[27] (MSB) is 1
+      scores.d = scores.q + 1;
+    }
+
+    case (state.q){
+      state.INIT:
+      if (game_start && ~game_end) {
+        state.d = state.IDLE;
+      }
+    
+      state.IDLE:
+          if(~|counter.q){ // load new value when counter is all zero
+              temp_encoding.d[15:0] = ROM[rom_address.q][15:0] | bird[15:0]; // changed 20240410, impose bird
+              temp_encoding.d[31:16] = ROM[rom_address.q][31:16]; 
+              temp_encoding.d[63:32] = ROM[rom_address.q+1]; 
+              temp_encoding.d[95:64] = ROM[rom_address.q+2]; 
+              temp_encoding.d[127:96] = ROM[rom_address.q+3]; 
+              temp_encoding.d[159:128] = ROM[rom_address.q+4]; 
+              temp_encoding.d[191:160] = ROM[rom_address.q+5]; 
+              temp_encoding.d[223:192] = ROM[rom_address.q+6]; 
+              temp_encoding.d[255:224] = ROM[rom_address.q+7]; 
+              temp_encoding.d[287:256] = ROM[rom_address.q+8]; 
+              temp_encoding.d[321:288] = ROM[rom_address.q+9]; 
+              temp_encoding.d[351:320] = ROM[rom_address.q+10]; 
+              temp_encoding.d[383:352] = ROM[rom_address.q+11]; 
+              temp_encoding.d[415:384] = ROM[rom_address.q+12]; 
+              temp_encoding.d[447:416] = ROM[rom_address.q+13]; 
+              temp_encoding.d[479:448] = ROM[rom_address.q+14]; 
+              temp_encoding.d[511:480] = ROM[rom_address.q+15]; 
+              state.d = state.LOAD;
+          } 
+          else if(~|counter1.q){ // load new value when counter is all zero
+              temp_encoding.d[15:0] = ROM[rom_address.q][15:0] | bird[15:0]; // changed 20240410, impose bird
+              temp_encoding.d[31:16] = ROM[rom_address.q][31:16]; 
+              //temp_encoding.d[47:32] = ROM[rom_address.q+1][15:0] | bird[15:0]; // changed 20240410, impose bird
+              //temp_encoding.d[63:48] = ROM[rom_address.q+1][31:16]; 
+              state.d = state.LOAD;
+
+              //check collide here..
+              for (index=0; index < MAX_HEIGHT*2; index= index+2){
+                  if (c{temp_encoding.q[index+1],temp_encoding.q[index]} == 2b11 && 
+                    c{ROM[rom_address.q][index+1],ROM[rom_address.q][index]} == 2b01){
+                      //tmp_collide.d = 1; 
+                      state.d = state.COLLIDE_IDLE;
+                  }
+              }
+          }
+
+          if (clear_button_edge){
+              led_strip.clear = 1;
+          }
+      
+      state.LOAD:
+          // wait until we are at RESET state before we decide to refresh the screen
+          if (led_strip.reset){
+              // tell the LED to update the pixels
+              led_strip.update = 1;
+              led_encoding.d = temp_encoding.q;
+              state.d = state.IDLE;
+          }
+          if (game_end) {
+            counter.d = 0;
+            counter1.d = 0;
+            state.d = state.INIT;
+          }
+        
+      state.COLLIDE_IDLE:
+          //load next frame
+          temp_encoding.d[15:0] = ROM[rom_address.q][15:0] | bird[15:0]; // changed 20240410, impose bird
+          temp_encoding.d[31:16] = ROM[rom_address.q][31:16]; 
+          temp_encoding.d[63:32] = ROM[rom_address.q+1]; 
+          temp_encoding.d[95:64] = ROM[rom_address.q+2]; 
+          temp_encoding.d[127:96] = ROM[rom_address.q+3]; 
+          temp_encoding.d[159:128] = ROM[rom_address.q+4]; 
+          temp_encoding.d[191:160] = ROM[rom_address.q+5]; 
+          temp_encoding.d[223:192] = ROM[rom_address.q+6]; 
+          temp_encoding.d[255:224] = ROM[rom_address.q+7]; 
+          temp_encoding.d[287:256] = ROM[rom_address.q+8]; 
+          temp_encoding.d[321:288] = ROM[rom_address.q+9]; 
+          temp_encoding.d[351:320] = ROM[rom_address.q+10]; 
+          temp_encoding.d[383:352] = ROM[rom_address.q+11]; 
+          temp_encoding.d[415:384] = ROM[rom_address.q+12]; 
+          temp_encoding.d[447:416] = ROM[rom_address.q+13]; 
+          temp_encoding.d[479:448] = ROM[rom_address.q+14]; 
+          temp_encoding.d[511:480] = ROM[rom_address.q+15]; 
+          state.d = state.COLLIDE_LOAD;
+          //tmp_collide.d = tmp_collide.q + 1; 
+          tmp_collide.d = 1b1; 
+        
+      state.COLLIDE_LOAD:
+        if (led_strip.reset){
+            // tell the LED to update the pixels
+            led_strip.update = 1;
+            led_encoding.d = temp_encoding.q;
+            state.d = state.IDLE;
+        }
+        if (game_end) {
+            counter.d = 0;
+            counter1.d = 0;
+            state.d = state.INIT;
+        }
+    }
+
+    // connect reverser to led_strip 
+    index_reverser.original_pixel_address = led_strip.pixel_address;
+    index_reverser.writer_pixel_done = led_strip.next_pixel;
+    index_reverser.activate = matrix_used.q + 1;
+    encoded_pixel_address = index_reverser.effective_pixel_address * $clog2(ENCODING_AMOUNT);
+    
+    // led_strip.pixel_address will vary between 0000 to 1100 
+    // address 0 --> encoding bit 1:0 
+    // address 1 --> encoding bit 3:2 
+    // address 2 --> encoding bit 5
+    // address N --> encoding bit N*2+1:N*2
+    
+   // get current color encoding for this pixel
+    for (index=0; index<$clog2(ENCODING_AMOUNT); index++){
+       current_color_encoding[index] = led_encoding.q[encoded_pixel_address+index];
+    }
+    
+    // based on the encoding extracted from dff led_encoding, we get the 24bit color value
+    led_strip.color = LEDCOLOR[current_color_encoding]; 
+    outled=led_strip.led;
+    collide = tmp_collide.q;
+    matrix = matrix_used.q + 1;
+    score = scores.q[7:0];
+  }
+}

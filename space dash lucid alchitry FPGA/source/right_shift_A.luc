@@ -1,0 +1,36 @@
+module right_shift_A#(
+  SIZE = 16 : SIZE > 0
+  )  (
+    input a[SIZE],
+    input b[$clog2(SIZE)],
+    output shift[SIZE]
+  ) {
+  sig w[SIZE];
+  sig x[SIZE];
+  sig y[SIZE];
+  
+  mux_2 mux_2_5[4];
+  always {
+  //8-bit shift
+    mux_2_5.s0[0] = b[3];
+    mux_2_5.in1[0] = a;
+    mux_2_5.in2[0] = c{8x{a[15]}, a[15:8]};
+    w = mux_2_5.out[0];
+  //4-bit shift  
+    mux_2_5.s0[1] = b[2];
+    mux_2_5.in1[1] = w;
+    mux_2_5.in2[1] = c{4x{a[15]}, w[15:4]};
+    x = mux_2_5.out[1];
+  //2-bit shift   
+    mux_2_5.s0[2] = b[1];
+    mux_2_5.in1[2] = x;
+    mux_2_5.in2[2] = c{2x{a[15]}, x[15:2]};
+    y = mux_2_5.out[2];
+  //1-bit shift  
+    mux_2_5.s0[3] = b[0];
+    mux_2_5.in1[3] = y;
+    mux_2_5.in2[3] = c{1x{a[15]},y[15:1]};
+    shift = mux_2_5.out[3];
+    
+  }
+}

@@ -1,0 +1,34 @@
+module sra_right_shift #(
+  SIZE = 16 : SIZE > 0
+  ) (
+    input a[SIZE],
+    input b[4],
+    output shift[SIZE]
+  ) {
+  sig i[SIZE];
+  sig j[SIZE];
+  sig k[SIZE];
+  //sig l[SIZE];
+  mux_2 mux_2_5[4];
+  always {
+    mux_2_5.s0[0] = b[3];
+    mux_2_5.in1[0] = a;
+    mux_2_5.in2[0] = c{8x{a[SIZE-1]}, a[SIZE-1:8]};
+    i = mux_2_5.out[0];
+    
+    mux_2_5.s0[1] = b[2];
+    mux_2_5.in1[1] = i;
+    mux_2_5.in2[1] = c{4x{a[SIZE-1]}, i[SIZE-1:4]};
+    j = mux_2_5.out[1];
+    
+    mux_2_5.s0[2] = b[1];
+    mux_2_5.in1[2] = j;
+    mux_2_5.in2[2] = c{2x{a[SIZE-1]},j[SIZE-1:2]};
+    k = mux_2_5.out[2];
+    
+    mux_2_5.s0[3] = b[0];
+    mux_2_5.in1[3] = k;
+    mux_2_5.in2[3] = c{a[SIZE-1], k[SIZE-1:1]};
+    shift = mux_2_5.out[3];
+  }
+}

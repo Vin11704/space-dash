@@ -1,0 +1,313 @@
+module game_fsm #(
+  ALU_DIMENSION = 16 : ALU_DIMENSION > 0
+  )(
+    input clk,  // clock
+    input rst,  // reset
+    
+    input start,
+    input flap_up,
+    input flap_down,
+    input reverse_button_edge,
+    input clear_button_edge,
+    
+    output game_over_led,
+    output game_started_led,
+    output score_output[ALU_DIMENSION],
+    output cycle_output[ALU_DIMENSION],
+    output height_output[ALU_DIMENSION],
+    output collide,
+    output matrix,
+
+    // ws2812b datain
+    output outled
+    
+  ) {
+
+  const MAX_HEIGHT = 8;
+  const MAX_CYCLE = 3;
+  const INIT_HEIGHT = 16b0000001000000000;
+  
+  //sig tmp[16];
+
+  alu alu16(#SIZE(ALU_DIMENSION)); // 16-bits ALU
+  
+  display_background background(.clk(clk), .rst(rst), #MAX_HEIGHT(MAX_HEIGHT));
+  
+  dff height[2*MAX_HEIGHT](.clk(clk), .rst(rst)); 
+  dff cycle[ALU_DIMENSION](.clk(clk), .rst(rst)); 
+  dff tmp[ALU_DIMENSION](.clk(clk), .rst(rst)); 
+  
+  .clk(clk) {
+    dff game_start(.rst(rst), #INIT(0)); 
+    dff game_over(.rst(rst), #INIT(0)); 
+  
+    // dffs to store values of a, b and alufn to be fed to the alu 
+    dff a[ALU_DIMENSION](.rst(rst));
+    dff b[ALU_DIMENSION](.rst(rst));
+    dff alufn[6](.rst(rst));
+    
+    .rst(rst){
+      fsm gameStates={
+        IDLE, GAME_START, 
+        CHECK_INPUT, FLAP_UP_INPUT, FLAP_DN_INPUT, INPUT_REFRESH, 
+        CHECK_CYCLE, CHECK_GAME_END, CHECK_GAME_END_ADD, CHECK_GAME_END_CMP, CHECK_GAME_END_ADD1, CHECK_COLLIDE, 
+        GAME_END, GAME_OVER };
+    }
+  }
+
+  always {
+    // alu to receive inputs from the dffs  
+    alu16.a = a.q;
+    alu16.b = b.q;
+    alu16.alufn_signal = alufn.q;
+
+    // assign background inputs 
+    background.start_button_edge = start;
+    background.reverse_button_edge = reverse_button_edge;
+    background.clear_button_edge = clear_button_edge;
+    background.game_start = game_start.q;
+    background.game_end = game_over.q;
+    background.bird = height.q;
+    
+    if (rst) { // INITIALISATION
+        gameStates.d = gameStates.IDLE;
+        height.d = INIT_HEIGHT;
+        cycle.d = 1b1;
+        game_start.d = 1b0;
+        game_over.d = 1b0;
+        a.d = 0;
+        b.d = 0;
+        alufn.d = 0;
+      } else {
+        case (gameStates.q) {
+          gameStates.CHECK_INPUT:
+            if (flap_up) { 
+                alu16.a = height.q[1:0];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[1:0];
+                b.d = 2b0;
+                alufn.d = b000001;  // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_UP_INPUT;
+                }
+            } else
+            if (flap_down) {
+                alu16.a = height.q[15:14];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[15:14];
+                b.d = 2b0;
+                alufn.d = b000001; // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_DN_INPUT;
+                }
+            } else
+              gameStates.d = gameStates.INPUT_REFRESH;
+          
+          gameStates.FLAP_UP_INPUT:
+              alu16.a = height.q;
+              alu16.b = 2;
+              alu16.alufn_signal = b100001; // a >> b
+              // set last ALU ops
+              a.d = height.q;
+              b.d = 2;
+              alufn.d = b100001; // a >> b
+              height.d = alu16.out;
+            gameStates.d = gameStates.INPUT_REFRESH;
+
+          gameStates.FLAP_DN_INPUT:
+              alu16.a = height.q;
+              alu16.b = 2;
+              alu16.alufn_signal = b100000; // a << 2
+              // set last ALU ops
+              a.d = height.q;
+              b.d = 2;
+              alufn.d = b100000; // a << 2
+              height.d = alu16.out;
+            gameStates.d = gameStates.INPUT_REFRESH;
+
+          gameStates.IDLE:
+            if (start) {
+              game_start.d = start;
+              gameStates.d = gameStates.GAME_START;
+            }
+        
+          gameStates.INPUT_REFRESH:
+            gameStates.d = gameStates.CHECK_COLLIDE;
+          
+          gameStates.GAME_START:
+            height.d = INIT_HEIGHT;
+            cycle.d = 1;
+            game_start.d = 1b1;
+            game_over.d = 1b0;
+            gameStates.d = gameStates.CHECK_INPUT;
+
+          gameStates.CHECK_CYCLE:
+            /*if (cycle.q > MAX_CYCLE) {
+              gameStates.d = gameStates.GAME_END;
+            } else {
+                gameStates.d = gameStates.CHECK_INPUT;
+            }*/
+            alu16.a = MAX_CYCLE;
+            alu16.b = cycle.q;
+            alu16.alufn_signal = 6b110101; // a < b
+            // set last ALU ops
+            a.d = MAX_CYCLE;
+            b.d = cycle.q;
+            alufn.d = 6b110101;
+            if (alu16.out) {
+              gameStates.d = gameStates.GAME_END;
+          } else {
+              gameStates.d = gameStates.CHECK_INPUT;
+            }
+          
+          gameStates.CHECK_GAME_END:
+            if (flap_up) { 
+                alu16.a = height.q[1:0];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[1:0];
+                b.d = 2b0;
+                alufn.d = b000001;  // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_UP_INPUT;
+                }
+            } else
+            if (flap_down) {
+                alu16.a = height.q[15:14];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[15:14];
+                b.d = 2b0;
+                alufn.d = b000001; // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_DN_INPUT;
+                }
+            } else {
+                alu16.a = 62;
+                alu16.b = cycle.q;
+                alu16.alufn_signal = 6b000010; // a * b
+                // set last ALU ops
+                a.d = 62;
+                b.d = cycle.q;
+                alufn.d = 6b000010; // a * b
+                tmp.d = alu16.out;
+                gameStates.d = gameStates.CHECK_GAME_END_ADD;
+              /*if (background.score > (62 * cycle.q)+cycle.q) {
+                cycle.d = cycle.q + 1;
+                gameStates.d = gameStates.CHECK_CYCLE;
+              } else {
+                gameStates.d = gameStates.CHECK_INPUT;
+              } */
+            }
+          
+          gameStates.CHECK_GAME_END_ADD:
+                //alu16.a = alu16.out;
+                alu16.a = tmp.q;
+                alu16.b = cycle.q;
+                alu16.alufn_signal = 6b000000; // a + b
+                // set last ALU ops
+                a.d = tmp.q;
+                b.d = cycle.q;
+                alufn.d = 6b000000; // a * b
+                tmp.d = alu16.out;
+                gameStates.d = gameStates.CHECK_GAME_END_CMP;
+          
+          gameStates.CHECK_GAME_END_CMP:
+                //alu16.a = alu16.out;
+                alu16.a = tmp.q;
+                alu16.b = background.score;
+                alu16.alufn_signal = 6b110101; // a < b
+                // set last ALU ops
+                a.d = tmp.q;
+                b.d = background.score;
+                alufn.d = 6b110101; // a < b
+                tmp.d = alu16.out;
+                gameStates.d = gameStates.CHECK_GAME_END_ADD1;
+          
+          gameStates.CHECK_GAME_END_ADD1:
+                if (tmp.q) {
+                  alu16.a = cycle.q;
+                  alu16.b = 1;
+                  alu16.alufn_signal = 6b000000; // a + b
+                  // set last ALU ops
+                  a.d = cycle.q;
+                  b.d = 1;
+                  alufn.d = 6b000000; // a + b
+                  cycle.d = alu16.out;
+                  gameStates.d = gameStates.CHECK_CYCLE;
+               }else {
+                gameStates.d = gameStates.CHECK_INPUT;
+               }
+          
+            
+          gameStates.CHECK_COLLIDE:
+            if (flap_up) { 
+                alu16.a = height.q[1:0];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[1:0];
+                b.d = 2b0;
+                alufn.d = b000001;  // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_UP_INPUT;
+                }
+            } else
+            if (flap_down) {
+                alu16.a = height.q[15:14];
+                alu16.b = 2b0;
+                alu16.alufn_signal = b000001; // a - b
+                // set last ALU ops
+                a.d = height.q[15:14];
+                b.d = 2b0;
+                alufn.d = b000001; // a - b
+      		       if (alu16.z) {
+                  gameStates.d = gameStates.FLAP_DN_INPUT;
+                }
+            } else
+            if(background.collide) {
+              gameStates.d = gameStates.GAME_OVER;
+            } else {
+              gameStates.d = gameStates.CHECK_GAME_END;
+          }
+            
+          gameStates.GAME_END:
+            game_start.d = 1;
+            game_over.d = 1;
+            if (start) {
+              game_start.d = 1b1;
+              game_over.d = 1b0;
+              gameStates.d = gameStates.GAME_START;
+              game_start.d = start;
+            }
+        
+          gameStates.GAME_OVER:
+            game_start.d = 0;
+            game_over.d = 1;
+            if (start) {
+              game_start.d = 1b1;
+              game_over.d = 1b0;
+              gameStates.d = gameStates.GAME_START;
+              game_start.d = start;
+            }
+          
+        }
+    }
+
+    // set module output
+    game_started_led = game_start.q;
+    game_over_led = game_over.q;
+    score_output = background.score;
+    matrix = background.matrix;
+    collide = background.collide;
+    outled = background.outled;
+    cycle_output = cycle.q;
+    height_output = height.q;
+  }
+}

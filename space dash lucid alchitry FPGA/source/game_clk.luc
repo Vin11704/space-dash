@@ -1,0 +1,69 @@
+module game_clk (  
+    input clk,  // clock
+    input rst,  // reset
+    
+    output gclk0,
+    output gclk1,
+    output gclk2 
+  ) {
+  
+  //connect the rst signal to the counter
+  dff stateCounter0[26](.clk(clk),.rst(rst), #INIT(0));
+  dff stateCounter1[25](.clk(clk),.rst(rst), #INIT(0));
+  dff stateCounter2[24](.clk(clk),.rst(rst), #INIT(0));
+  
+  always {
+    if (rst) {
+	    // when reset signal is asserted
+        stateCounter0.d = 0; // Reset counter to 0 
+        stateCounter1.d = 0; // Reset counter to 0 
+        stateCounter2.d = 0; // Reset counter to 0 
+        gclk0 = 0; // Reset gclk0 to 0 
+        gclk1 = 0; // Reset gclk1 to 0 
+        gclk2 = 0; // Reset gclk2 to 0 
+    } else {
+        if (stateCounter0.q[25]==1) {
+          stateCounter0.d = 0;
+        } 
+        gclk0 = stateCounter0.q[25]; 
+            
+        if (stateCounter1.q[24]==1) {
+          stateCounter1.d = 0;
+        } 
+        gclk1 = stateCounter1.q[24]; 
+            
+        if (stateCounter2.q[23]==1) {
+          stateCounter2.d = 0;
+        } 
+        gclk2 = stateCounter2.q[23]; 
+            
+        stateCounter0.d = stateCounter0.q + 1;
+        stateCounter1.d = stateCounter1.q + 1;
+        stateCounter2.d = stateCounter2.q + 1;
+    }
+  }
+}
+
+
+/*module game_clk (
+    input clk,  // clock
+    input rst,  // reset
+    
+    output gclk0,
+    output gclk1,
+    output gclk2 
+  ) {
+  
+
+  .clk(clk), .rst(rst) {
+    counter ctr0(#DIV(27), #SIZE(1)); 
+    counter ctr1(#DIV(26), #SIZE(1)); 
+    counter ctr2(#DIV(25), #SIZE(1)); 
+  }
+  
+  always {
+      gclk0 = ctr0.value; 
+      gclk1 = ctr1.value; 
+      gclk2 = ctr2.value; 
+  }
+}*/

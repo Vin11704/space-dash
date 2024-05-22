@@ -1,0 +1,27 @@
+// rca.luc
+module rca #(
+    SIZE = 16 : SIZE > 0
+    ) (
+    input a[SIZE],
+    input b[SIZE],
+    input ci,
+    output s[SIZE]
+  ) {
+  fa fa[SIZE];
+  var i;
+  
+  always {
+    for (i=0; i<SIZE; i++){ // define the connections for the other x units of fa 
+      fa.a[i] = a[i];
+      fa.b[i] = b[i];
+      if (i == 0){
+        fa.ci[i] = ci;
+      }
+      else{
+        fa.ci[i] = fa.co[i-1];
+      }
+    }
+      
+    s = fa.s; // connect the output bits
+  }
+}

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="space_dash" board="Alchitry Au" language="Lucid" version="3">
+  <files>
+    <src>display_score.luc</src>
+    <component>pipeline.luc</component>
+    <src>multiplier.luc</src>
+    <src>ws2812b_writer.luc</src>
+    <src>left_shift.luc</src>
+    <src>display_background.luc</src>
+    <src>multi_seven_seg.luc</src>
+    <src>game_clk.luc</src>
+    <src>fa.luc</src>
+    <component>edge_detector.luc</component>
+    <src>game_fsm.luc</src>
+    <src>division.luc</src>
+    <component>decoder.luc</component>
+    <src>reverser.luc</src>
+    <component>bin_to_dec.luc</component>
+    <src>compare.luc</src>
+    <src top="true">au_top.luc</src>
+    <src>shifter.luc</src>
+    <src>right_shift.luc</src>
+    <src>adder.luc</src>
+    <component>counter.luc</component>
+    <src>mux_4.luc</src>
+    <src>alu.luc</src>
+    <src>seven_seg.luc</src>
+    <src>mux_2.luc</src>
+    <src>rca.luc</src>
+    <src>boolean.luc</src>
+    <component>button_conditioner.luc</component>
+    <src>right_shift_A.luc</src>
+    <component>reset_conditioner.luc</component>
+    <constraint>custom.acf</constraint>
+    <constraint lib="true">au.xdc</constraint>
+  </files>
+</project>

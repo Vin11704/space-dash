@@ -1,0 +1,13 @@
+// divide a by b
+module division#(
+  SIZE = 16 : SIZE > 0
+  ) (
+    input a[SIZE], // dividend
+    input b[SIZE], // divisor
+    output d[SIZE] // a/b
+  ) {
+
+  always {
+    d = a/b;
+  }
+}

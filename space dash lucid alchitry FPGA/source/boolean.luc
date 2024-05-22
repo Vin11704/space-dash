@@ -1,0 +1,62 @@
+module boolean#(
+  SIZE = 16 : SIZE > 0
+  ) (
+    input a[SIZE],
+    input b[SIZE],
+    input alufn_signal[6],
+    output bool[SIZE]
+  ) {
+  
+  /*
+  sig temp[16];
+  
+  always {
+    case(alufn_signal[3:0]){
+      b0000:                    // OR - bitwise
+        temp = a | b;
+      
+      b0001:                    // AND - bitwise
+        temp = a & b;
+      
+      b0010:                    // XOR - bitwise
+        temp = a ^ b;
+      
+      b0011:                    // "X" 
+        temp = a; 
+      
+      b0100:                    // "Y" 
+        temp = b;
+      
+      b1000:                    // NOR - bitwise
+        temp = ~ (a | b);
+      
+      b1001:                    // NAND - bitwise
+        temp = ~ (a & b);
+      
+      b1011:                    // NOT X
+        temp = ~ a;
+      
+      b1100:                    // NOT Y
+        temp = ~ b;              
+      
+      default:      
+        temp = SIZEx{b0}; 
+    }
+    
+    bool = temp;
+  }
+  */
+  
+  mux_4 mux_4_32[SIZE];
+
+  always {
+    // default values to silence errors 
+    bool = 0;
+    mux_4_32.s1 = b;
+    mux_4_32.s0 = a;
+    mux_4_32.in = SIZEx{{alufn_signal[3:0]}};
+    bool = mux_4_32.out;
+  }
+  
+  
+}

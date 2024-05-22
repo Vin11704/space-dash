@@ -1,0 +1,37 @@
+module left_shift#(
+  SIZE = 16 : SIZE > 0
+  )  (
+    input a[SIZE],
+    input b[$clog2(SIZE)],    
+    output shift[SIZE]
+  ) {
+  sig w[SIZE];
+  sig x[SIZE];
+  sig y[SIZE];
+  
+  mux_2 mux_2_5[4];   //require 4 mux for 16-bit shift
+  always {
+  //8-bit shift
+    mux_2_5.s0[0] = b[3];            
+    mux_2_5.in1[0] = a;
+    mux_2_5.in2[0] = c{a[7:0],8b0};
+    w = mux_2_5.out[0];
+  //4-bit shift  
+    mux_2_5.s0[1] = b[2];
+    mux_2_5.in1[1] = w;
+    mux_2_5.in2[1] = c{w[11:0],4b0};
+    x = mux_2_5.out[1];
+  //2-bit shift  
+    mux_2_5.s0[2] = b[1];
+    mux_2_5.in1[2] = x;
+    mux_2_5.in2[2] = c{x[13:0],2b0};
+    y = mux_2_5.out[2];
+  //1-bit shift 
+    mux_2_5.s0[3] = b[0];
+    mux_2_5.in1[3] = y;
+    mux_2_5.in2[3] = c{y[15:0],b0};
+    shift = mux_2_5.out[3];
+    
+    
+  }
+}

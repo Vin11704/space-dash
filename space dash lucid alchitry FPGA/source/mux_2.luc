@@ -1,0 +1,18 @@
+module mux_2#(
+  SIZE = 16 : SIZE > 0
+  ) (
+    input s0,
+    input in1[SIZE],
+    input in2[SIZE],
+    output out[SIZE]
+  ) {
+
+  always {
+    case (s0) {
+    0: out = in1; 
+    1: out = in2;
+      default:
+      out = 0;
+    }
+  }
+}
